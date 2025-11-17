@@ -1,242 +1,502 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+---
+
 # Claude Code Testing Environment
 
-This repository contains a comprehensive 76-test benchmark suite for testing Claude Code's capabilities across multiple domains.
+This repository contains a **meta-testing framework** where Claude Code tests itself through a comprehensive 76-test benchmark suite across multiple domains.
 
-## Quick Start
+## Architecture Overview
 
-### First Time Setup
+### Meta-Testing Concept
 
-1. **Run the environment setup script:**
-   ```bash
-   chmod +x setup_environment.sh
-   ./setup_environment.sh
-   ```
+This is NOT a traditional software project—it's a **self-evaluation framework**:
 
-2. **Review setup results:**
-   - Check `setup_environment.log` for detailed setup information
-   - Review `environment_capabilities.txt` for available features
-   - See `setup_report.md` for initial environment validation results
+```
+Claude Code tests Claude Code
+├── Worker Agents (execute tests) → create timestamped branches
+├── Judge Agent (evaluates results) → scores worker performance
+└── Test Prompts (76 specifications) → detailed test instructions
+```
 
-3. **Verify test data:**
-   ```bash
-   ls -la /tmp/test-data/
-   ```
+**Key Insight:** Test prompts in `test_suite/` are given TO Claude Code instances to execute. The results are logged in JSONL format and later evaluated by a separate judge agent.
 
-### Session Start Checks
+### Multi-Agent Pattern
 
-Each time you start a new Claude Code session, the SessionStart hook (configured in `.claude/settings.json`) will automatically:
-- Display environment information
-- Check for required tools (Python, Node, Git)
-- Verify test data availability
-- Show quick capability summary
+**Worker Agent Workflow:**
+1. Creates branch: `agent/YYYYMMDDTHHMMSSZ` (UTC timestamp)
+2. Initializes log: `log_YYYYMMDDTHHMMSSZ.jsonl` (matches branch timestamp)
+3. Executes tests sequentially from `test_suite/prompt_1_tests.md`
+4. After each test: appends to JSONL → git commit → git push
+5. Generates summary reports
+
+**Judge Agent Workflow:**
+1. Operates on branch: `agent/00000000T000000Z`
+2. Reads worker's JSONL logs cross-branch
+3. Scores based on `judge_rubric.yaml` criteria
+4. Generates evaluation reports
+
+**Design Philosophy:** Separation of execution (worker) and evaluation (judge) enables reproducible, unbiased assessment.
+
+### Two-Phase Testing
+
+**Phase 0: Setup (5 tests)** - Environment validation
+- `test_suite/prompt_0_setup.md` contains detailed specifications
+- Tests: Podman, nested containers, session duration, network tools, data generation
+- **Purpose:** Determine which of the 76 main tests can be executed
+- **Decision-making:** Failed setup tests trigger test skipping (graceful degradation)
+
+**Phase 1: Main Tests (76 tests)** - Capability benchmark
+- `test_suite/prompt_1_tests.md` contains all 76 test specifications
+- Categories: Security, performance, containers, databases, multi-agent, privacy, RAG, etc.
+- **Pass threshold:** 80% (61/76 tests) with confidence ≥0.75
+- **Critical tests:** #1, 5, 10, 36, 68, 71, 72 (must pass)
+
+---
+
+## JSONL Logging Architecture
+
+### Log Structure
+
+Each test execution creates ONE JSONL file: `log_YYYYMMDDTHHMMSSZ.jsonl`
+
+**Every test produces one line** with this structure:
+
+```json
+{
+  "timestamp": "2025-11-17T19:30:00Z",
+  "test_number": "setup_01" | "001",
+  "test_name": "podman_availability",
+  "category": "environment_validation",
+  "status": "pass|fail|partial|timeout",
+  "confidence": 0.0-1.0,
+  "estimated_duration_seconds": 600,
+  "actual_duration_seconds": 120,
+  "context": {
+    "system_state": {"cpu_usage_percent": 25, "memory_available_gb": 4},
+    "environment": {"python_version": "3.9.6", "podman_version": "5.7.0"},
+    "test_inputs": {"parameters": {...}, "data_samples": {...}}
+  },
+  "details": {
+    "approach": "Sequential validation of Podman functionality",
+    "issues_found": ["Docker daemon not running"],
+    "limitations": ["Cannot test nested containers"],
+    "complete_error": {"message": "", "stack_trace": [], "relevant_code": ""}
+  },
+  "artifacts_created": ["/tmp/test-data/json-files/"],
+  "reasoning": "Why this test passed or failed",
+  "decision": "skip_container_tests|proceed_with_containers"
+}
+```
+
+### Self-Contained Logs
+
+**Critical Design Principle:** Each log entry contains everything needed for another Claude instance to understand what happened—enabling **Test 67: Meta-self-test and root cause analysis**.
+
+### Querying Logs
+
+```bash
+# Summary of test statuses
+jq -s 'group_by(.status) | map({status: .[0].status, count: length})' log_*.jsonl
+
+# Get all failed tests
+jq -s '.[] | select(.status == "fail") | {test_name, reasoning}' log_*.jsonl
+
+# Check confidence scores
+jq -s '.[] | select(.test_number) | {test_name, confidence, status}' log_*.jsonl
+
+# Find tests that timed out
+jq -s '.[] | select(.timeout_triggered == true)' log_*.jsonl
+```
+
+### Timestamp Correlation
+
+The UTC timestamp (`YYYYMMDDTHHMMSSZ`) is the **universal key** linking:
+- Branch name: `agent/20251117T191722Z`
+- Log filename: `log_20251117T191722Z.jsonl`
+- Git commits: `"Initialize setup phase: 20251117T191722Z"`
+
+---
+
+## Environment Capability Adaptation
+
+### Decision Tree
+
+Setup test failures **trigger adaptive behavior** (not hard failures):
+
+```
+setup_01 (Podman Availability) FAIL
+  ↓ decision: "skip_container_tests"
+  → Tests 16-20, 36-40, 71-72, 76 → SKIPPED
+
+setup_04 (Network Tools) PARTIAL
+  ↓ decision: "use_app_level_logging"
+  → Tests 68, 71-72 → Use HTTP logging instead of packet capture
+
+setup_03 (Session Duration) TIMEOUT at 15min
+  ↓ decision: "split_into_multiple_sessions"
+  → Tests 56-60, 76 → Execute in separate sessions
+```
+
+### Capability Detection
+
+**File:** `environment_capabilities.txt` (auto-generated by `setup_environment.sh`)
+
+```
+CONTAINER RUNTIME
+-----------------
+Available: true
+Runtime: podman
+Impact: All container tests available
+
+NETWORK MONITORING
+------------------
+Available: true (tshark + scapy with BPF access)
+Impact: Full packet capture for privacy tests
+
+PYTHON PACKAGES
+---------------
+Pillow: ✓ Available
+Faker: ✓ Available
+scapy: ✓ Available
+
+TEST DATA
+---------
+Location: /tmp/test-data
+Generated: 2025-11-17T15:18:55Z
+Datasets: JSON (50), Images (1000), FHIR (100), GDPR (1000), RAG (99), Research (15)
+```
+
+Check current capabilities:
+```bash
+cat environment_capabilities.txt
+```
+
+---
+
+## Test Data Architecture
+
+### Why Ephemeral (/tmp)?
+
+Test data lives in `/tmp/test-data/` (gitignored) because:
+1. **124MB of binary data** shouldn't be in git
+2. **Reproducible generation** > versioning binary files
+3. **Setup script documents** the generation process
+4. **Manifest file** (`test_data_manifest.txt`) tracks what should exist
+
+### Generated Datasets
+
+| Dataset | Count | Size | Purpose | Invalid % |
+|---------|-------|------|---------|-----------|
+| JSON Files | 50 | ~20MB | JSON processing tests | 10% (5 invalid) |
+| Images | 1000 | ~100MB | Image processing (PNG, JPEG, WEBP) | 0% |
+| FHIR Patients | 100 | <1MB | Healthcare data standards | 0% |
+| GDPR Users | 1000 | ~5MB | Privacy compliance (EU localized) | 0% |
+| RAG Articles | 99 | ~10MB | Document retrieval (schema.org) | 0% |
+| Research Papers | 15 | <1MB | Citation management | 0% |
+
+**Note:** JSON files intentionally include 5 invalid files (10%) to test error handling.
+
+### Realistic Data Generation
+
+- Uses **Faker library** with EU localizations (`en_GB`, `fr_FR`, `de_DE`, `it_IT`, `es_ES`)
+- **FHIR-compliant** medical records
+- **Schema.org** structured data for RAG articles
+- **Real DOIs** for 4 papers, synthetic for remaining 11
+
+---
+
+## Git Workflow Patterns
+
+### Branch Strategy
+
+```
+main (stable baseline)
+├── develop (integration)
+├── agent/00000000T000000Z (judge - persistent, holds rubric)
+└── agent/YYYYMMDDTHHMMSSZ (workers - one per test run)
+    └── Example: agent/20251117T191722Z
+```
+
+### Commit After Every Test
+
+**Critical Pattern:** Git commit after each individual test execution.
+
+**Why?**
+- ✅ **Checkpointing** - Resume from failures
+- ✅ **Audit trail** - Track progress through git history
+- ✅ **Recovery** - Don't lose work if session crashes
+- ✅ **Judge visibility** - Can see incremental progress
+
+**Commit Message Format:**
+```
+Test #XX: test_name - status
+
+Category: test_category
+Duration: 120s / 600s (estimated)
+Confidence: 0.95
+```
+
+**Examples from history:**
+```
+Setup Test #1: podman_availability - fail
+Setup Test #5: test_data_generation - pass
+Test #38: complex_query_optimization - pass
+```
+
+### Push Strategy
+
+After each commit, push with retry logic:
+```bash
+for i in {1..3}; do
+  if git push origin agent/20251117T191722Z; then
+    break
+  else
+    sleep $((2**i))  # Exponential backoff: 2s, 4s, 8s
+  fi
+done
+```
+
+**Design:** Don't block test execution on git failures—log errors and continue.
+
+---
+
+## Network Monitoring Tiers
+
+### Three-Tier Approach
+
+Tests 68, 71-72 require **verifying zero data exfiltration** when processing sensitive data (SSN, credit cards, PHI, PII).
+
+**Tier 1 (Preferred):** `tshark` (Wireshark CLI)
+- Packet-level capture
+- Requires: ChmodBPF on macOS (`brew install --cask wireshark-chmodbpf`)
+- Usage: `tshark -i en0 -c 10 -f "host anthropic.com"`
+
+**Tier 2 (Alternative):** `scapy` (Python)
+- Programmatic packet analysis
+- Requires: BPF access (same as tshark)
+- Usage: `python3 -c "from scapy.all import sniff; packets = sniff(count=10)"`
+
+**Tier 3 (Fallback):** Application-level logging
+- HTTP request inspection
+- No special privileges required
+- Usage: Intercept with `unittest.mock.patch` or logging hooks
+
+### Capability Testing
+
+```bash
+python3 test_network_monitor.py
+```
+
+**Output:**
+```
+✓ PASS - Scapy Import
+✓ PASS - Passive Monitoring
+✓ PASS - Interface Listing
+✓ PASS - Packet Capture (requires BPF on macOS)
+✓ PASS - Application Logging
+
+✓ All network monitoring capabilities available!
+```
+
+---
+
+## Development Commands
+
+### Environment Setup
+
+```bash
+# First time setup (installs dependencies, generates test data)
+chmod +x setup_environment.sh
+./setup_environment.sh
+
+# Regenerate test data only
+rm -rf /tmp/test-data
+./setup_environment.sh
+
+# Check current capabilities
+cat environment_capabilities.txt
+
+# View detailed setup log
+less setup_environment.log
+```
+
+### Test Execution
+
+```bash
+# Worker agent would execute tests from test_suite/prompt_1_tests.md
+# Each test specification includes detailed instructions
+
+# Verify test data exists
+ls -la /tmp/test-data/
+
+# Check test data manifest
+cat test_data_manifest.txt
+```
+
+### Log Analysis
+
+```bash
+# View all test statuses
+jq -s 'group_by(.status) | map({status: .[0].status, count: length})' log_*.jsonl
+
+# Get summary statistics
+jq -s '.[] | select(.test_number) | {test_name, status, duration: .actual_duration_seconds, confidence}' log_*.jsonl
+
+# Find failing tests with reasoning
+jq -s '.[] | select(.status == "fail") | {test_number, test_name, reasoning, issues_found: .details.issues_found}' log_*.jsonl
+
+# Check environment at test time
+jq -s '.[0].context.system_state' log_*.jsonl
+```
+
+### Network Monitoring
+
+```bash
+# Test network capture capabilities
+python3 test_network_monitor.py
+
+# Verify scapy available
+python3 -c "from scapy.all import sniff; print('scapy OK')"
+
+# Check tshark version
+tshark --version
+```
+
+### Git Operations
+
+```bash
+# View test execution history
+git log --oneline --graph agent/20251117T191722Z
+
+# See which tests were committed
+git log --oneline --grep="Test #" agent/20251117T191722Z
+
+# Compare worker and judge branches
+git log --oneline --left-right agent/20251117T191722Z...agent/00000000T000000Z
+
+# View specific test commit
+git show agent/20251117T191722Z:log_20251117T191722Z.jsonl | jq -s '.[] | select(.test_number == "005")'
+```
+
+---
+
+## Judge Agent Evaluation
+
+### Scoring Rubric
+
+Located on judge branch: `agent/00000000T000000Z` in `judge_rubric.yaml`
+
+```yaml
+evaluation_rubric:
+  per_test:
+    correctness: {weight: 0.4, scale: 0-10}
+    completeness: {weight: 0.3, scale: 0-10}
+    quality: {weight: 0.3, scale: 0-10}
+    pass_threshold: 7.0
+  suite_level:
+    minimum_pass_rate: 0.80
+    critical_tests: [1, 5, 10, 36, 68, 71, 72]
+```
+
+### Critical Tests (Must Pass)
+
+- **Test 1, 5:** File operations (basic capability)
+- **Test 10:** JSON processing (data handling)
+- **Test 36:** Database operations (complex systems)
+- **Test 68:** Privacy/sensitive data handling (zero exfiltration)
+- **Test 71:** HIPAA-compliant medical data
+- **Test 72:** GDPR compliance with right to be forgotten
+
+**Implication:** These tests have higher weight. If any critical test fails, suite-level evaluation may fail even if ≥80% total pass rate.
+
+### Reading Judge Evaluations
+
+Judge stores evaluations in: `agent/00000000T000000Z/judge_evaluations/eval_YYYYMMDDTHHMMSSZ.jsonl`
+
+```bash
+# View judge evaluation for a worker run
+git show agent/00000000T000000Z:judge_evaluations/eval_20251117T191722Z.jsonl
+```
+
+---
 
 ## Project Structure
 
 ```
 anthropic-claude-bench/
 ├── .claude/
-│   └── settings.json          # SessionStart hooks and environment config
-├── setup_environment.sh        # Main environment setup script
-├── setup_report.md            # Initial setup phase results (5 tests)
-├── judge_rubric.yaml          # Evaluation criteria for judge agent
-├── test_data_manifest.txt     # Test data inventory
-├── environment_capabilities.txt # Current environment capabilities
-├── log_YYYYMMDDTHHMMSSZ.jsonl # Test execution logs
-└── CLAUDE.md                  # This file
+│   └── settings.json              # SessionStart hook (auto-validates environment)
+├── test_suite/
+│   ├── prompt_0_setup.md          # 5 setup tests (detailed specifications)
+│   └── prompt_1_tests.md          # 76 main tests (complete test suite)
+├── setup_environment.sh           # Automated environment setup
+├── test_network_monitor.py        # Network capability tester
+├── setup_report.md                # Setup phase results
+├── environment_capabilities.txt   # Auto-generated capability summary
+├── environment_status_final.md    # Final status (100% capability achieved)
+├── judge_rubric.yaml              # Evaluation criteria (on judge branch)
+├── log_YYYYMMDDTHHMMSSZ.jsonl     # Test execution logs (worker branches)
+├── test_data_manifest.txt         # Test data inventory
+├── .env.example                   # Configuration template
+└── CLAUDE.md                      # This file
 ```
 
-## Test Suite Overview
+---
 
-### 76-Test Benchmark Categories
+## Test Suite Categories
 
-The test suite is divided into several categories:
+### 76-Test Benchmark
 
-1. **File Operations (Tests 1-5)**
-   - Basic file read/write operations
-   - File system navigation
-   - Permission handling
+The test suite is divided into 15+ categories:
 
-2. **JSON Processing (Tests 6-10)**
-   - JSON parsing and validation
-   - Large file handling
-   - Error recovery
+1. **File Operations (Tests 1-5)** - Basic file read/write, navigation, permissions
+2. **JSON Processing (Tests 6-10)** - Parsing, validation, large files, error recovery
+3. **Image Processing (Tests 11-15)** - Metadata extraction, format conversion, batch processing
+4. **Container Operations (Tests 16-20, 36-40)** - Docker/Podman lifecycle, orchestration
+5. **Medical Data/FHIR (Tests 21-25)** - Healthcare standards, privacy compliance
+6. **GDPR Compliance (Tests 26-30)** - Data protection, consent, right to erasure
+7. **RAG/Search (Tests 31-35)** - Document retrieval, semantic search, context extraction
+8. **Git Operations (Tests 41-45)** - Repository management, branching, conflict resolution
+9. **API Integration (Tests 46-50)** - RESTful APIs, authentication, rate limiting
+10. **Research/Citations (Tests 51-55)** - Academic parsing, DOI resolution, bibliography
+11. **Long-running Operations (Tests 56-60, 76)** - Session stability, progress tracking
+12. **Privacy & Security (Tests 68, 71-72)** - Data leak prevention, network monitoring
+13. **Multi-Agent Systems (Tests 31-35)** - Agent hierarchies, DSPy, BAML, GEPA
+14. **Database Operations (Tests 36-40)** - Schema design, migrations, optimization
+15. **Skills & MCP Servers (Tests 41-50)** - Skill management, FastMCP, tool schemas
 
-3. **Container Operations (Tests 16-20, 36-40)**
-   - Docker/Podman image management
-   - Container lifecycle operations
-   - **Note:** Requires container runtime (Podman or Docker)
+**Complete specifications:** See `test_suite/prompt_1_tests.md` for all 76 tests with acceptance criteria, duration estimates, and detailed requirements.
 
-4. **Image Processing (Tests 11-15)**
-   - Image metadata extraction
-   - Format conversion
-   - Batch processing
-
-5. **Medical Data (FHIR) (Tests 21-25)**
-   - FHIR resource validation
-   - Healthcare data standards
-   - Privacy compliance
-
-6. **GDPR Compliance (Tests 26-30)**
-   - Data protection validation
-   - User consent management
-   - Right to erasure
-
-7. **RAG/Search (Tests 31-35)**
-   - Document retrieval
-   - Semantic search
-   - Context extraction
-
-8. **Git Operations (Tests 41-45)**
-   - Repository management
-   - Branch operations
-   - Merge conflict resolution
-
-9. **API Integration (Tests 46-50)**
-   - RESTful API interactions
-   - Authentication handling
-   - Rate limiting
-
-10. **Research/Citations (Tests 51-55)**
-    - Academic citation parsing
-    - DOI resolution
-    - Bibliography management
-
-11. **Privacy & Security (Tests 68, 71-72)**
-    - Data leak prevention
-    - Network monitoring
-    - Secure communications
-    - **Note:** May require network packet capture tools
-
-12. **Long-running Operations (Tests 56-60, 76)**
-    - Session stability
-    - Progress tracking
-    - State management
+---
 
 ## Dependencies
 
-### Required (Pre-installed in Claude Code)
+### Pre-installed in Claude Code
 
-- **Python 3.x** - Core scripting and test execution
+- **Python 3.x** - Core scripting
 - **Node.js LTS** - JavaScript tooling
-- **Git** - Version control operations
+- **Git** - Version control
 
-### Optional (Install via setup script)
+### Optional (Installed via setup script)
 
-- **Podman/Docker** - Container runtime for tests 16-20, 36-40, 71-72, 76
-- **Python packages:**
-  - `Pillow` - Image processing
-  - `Faker` - Synthetic data generation
-  - `scapy` - Network packet capture (for tests 68, 71-72)
+**Container Runtime:**
+- **Podman 5.x** (preferred) OR **Docker**
+- Required for: Tests 16-20, 36-40, 71-72, 76
 
-### Network Tools (Optional)
+**Python Packages:**
+- **Pillow** - Image processing (real PNG/JPEG/WEBP generation)
+- **Faker** - Realistic synthetic data (EU localized)
+- **scapy** - Network packet analysis
 
-- **tcpdump** - Packet capture (requires root privileges)
-- **tshark** - Wireshark CLI tool
+**Network Tools:**
+- **tcpdump** (pre-installed on macOS, requires root)
+- **tshark** (Wireshark CLI) - Install: `brew install wireshark`
+- **ChmodBPF** (macOS) - Install: `brew install --cask wireshark-chmodbpf` (requires reboot)
 
-## Test Data
-
-### Generated Datasets
-
-The setup script generates comprehensive test data in `/tmp/test-data/`:
-
-| Dataset | Count | Location | Purpose |
-|---------|-------|----------|---------|
-| JSON Files | 50 | `json-files/` | JSON processing tests (45 valid, 5 invalid) |
-| Images | 1000 | `images/` | Image processing tests (various formats) |
-| FHIR Patients | 100 | `medical/fhir/` | Healthcare data tests |
-| GDPR Users | 1000 | `gdpr/users.json` | Privacy compliance tests |
-| RAG Articles | 99 | `rag/articles/` | Search and retrieval tests |
-| Research Papers | 15 | `research/papers.json` | Citation tests |
-
-**Total Size:** ~124 MB
-
-### Data Regeneration
-
-To regenerate test data:
-```bash
-rm -rf /tmp/test-data
-./setup_environment.sh
-```
-
-## Environment Capabilities
-
-### Current Limitations (as of setup phase)
-
-Based on the initial setup tests (`setup_report.md`):
-
-1. **Container Runtime:**
-   - Status: Not available
-   - Impact: Tests 16-20, 36-40, 71-72, 76 must be skipped
-   - Fix: Install Podman or start Docker daemon
-
-2. **Network Monitoring:**
-   - Status: Limited (tcpdump requires root)
-   - Impact: Tests 68, 71-72 will use application-level logging
-   - Fix: Install tshark or configure tcpdump with privileges
-
-3. **Session Duration:**
-   - Validated: 9 minutes of stable operation
-   - Target: 30 minutes
-   - Impact: May need to split long-running tests into phases
-
-### Strengths
-
-- ✅ Full Python environment with package management
-- ✅ Complete test data generation (all datasets)
-- ✅ Git operations fully functional
-- ✅ File and data processing capabilities
-- ✅ Stable session management (validated 9+ minutes)
-
-## Running Tests
-
-### Manual Test Execution
-
-```bash
-# Run specific test
-python3 tests/test_001_file_operations.py
-
-# Run test category
-python3 tests/run_category.py --category json
-
-# Run all tests (excluding skipped)
-python3 tests/run_all.py --skip-containers
-```
-
-### Automated Test Execution
-
-The worker agent on branch `agent/YYYYMMDDTHHMMSSZ` will execute tests and log results to `log_YYYYMMDDTHHMMSSZ.jsonl`.
-
-### Evaluation
-
-The judge agent on branch `agent/00000000T000000Z` will evaluate test results based on `judge_rubric.yaml`:
-
-- **Per-test scoring:** Correctness (40%), Completeness (30%), Quality (30%)
-- **Pass threshold:** 7.0/10
-- **Suite-level:** Minimum 80% pass rate
-- **Critical tests:** 1, 5, 10, 36, 68, 71, 72
-
-## Git Workflow
-
-### Branch Strategy
-
-- `main` - Stable baseline
-- `develop` - Integration branch
-- `agent/00000000T000000Z` - Judge agent branch (evaluation)
-- `agent/YYYYMMDDTHHMMSSZ` - Worker agent branches (test execution)
-
-### Logging
-
-All test execution is logged in JSONL format:
-```json
-{
-  "timestamp": "2025-11-17T19:30:00Z",
-  "test_number": "001",
-  "test_name": "file_read_operation",
-  "status": "pass",
-  "confidence": 0.95,
-  "details": {...}
-}
-```
+---
 
 ## Environment Variables
 
@@ -253,12 +513,34 @@ USE_APP_LEVEL_LOGGING=true
 # GITHUB_TOKEN=ghp_...
 ```
 
+---
+
+## SessionStart Hook
+
+Configured in `.claude/settings.json`, automatically runs on every new session:
+
+**Displays:**
+- Timestamp
+- Python, Node, Git versions
+- Test data availability check
+- Quick capability summary:
+  - ✓ Podman available
+  - ✓ Docker available (daemon running)
+  - ✓ Pillow available
+  - ✓ Faker available
+  - ✗ Podman not available → Install for container tests
+
+**Purpose:** Instant environment validation without manual commands.
+
+---
+
 ## Troubleshooting
 
 ### Test Data Not Found
 
 ```bash
-# Regenerate test data
+# Regenerate all test data
+rm -rf /tmp/test-data
 ./setup_environment.sh
 ```
 
@@ -268,48 +550,76 @@ USE_APP_LEVEL_LOGGING=true
 # Check container runtime
 podman --version || docker --version
 
-# Start Docker daemon (if installed)
-# System-specific - may require manual intervention
+# If Docker installed but daemon not running
+# macOS: Open Docker Desktop app
+# Linux: sudo systemctl start docker
+```
+
+### Network Monitoring Not Working
+
+```bash
+# Test capabilities
+python3 test_network_monitor.py
+
+# If packet capture fails:
+# macOS: brew install --cask wireshark-chmodbpf && sudo reboot
+# Linux: sudo setcap cap_net_raw+eip $(which python3)
 ```
 
 ### Python Package Import Errors
 
 ```bash
-# Reinstall Python dependencies
+# Reinstall dependencies
 pip3 install --user Pillow Faker scapy
+
+# Verify installations
+python3 -c "from PIL import Image; from faker import Faker; from scapy.all import sniff; print('All OK')"
 ```
 
 ### Session Timeout
 
-For long-running tests, consider:
-1. Splitting tests into multiple sessions
-2. Using checkpoint/resume mechanisms
-3. Periodic git commits to save state
+For long-running tests:
+1. Split into multiple sessions (checkpoint with git commits)
+2. Use progress tracking mechanisms
+3. Periodic git commits save state
+
+---
 
 ## Additional Resources
 
-- **Setup Log:** `setup_environment.log` - Detailed setup process
-- **Capabilities:** `environment_capabilities.txt` - Current environment status
-- **Setup Report:** `setup_report.md` - Initial validation results (5 tests)
-- **Judge Rubric:** `judge_rubric.yaml` - Evaluation criteria
-- **Test Logs:** `log_*.jsonl` - Test execution logs
+**Generated by setup script:**
+- `setup_environment.log` - Detailed setup process
+- `environment_capabilities.txt` - Current capabilities
+- `setup_report.md` - Initial validation (5 tests)
 
-## Documentation References
+**On judge branch:**
+- `judge_rubric.yaml` - Evaluation criteria
+- `judge_evaluations/` - Evaluation reports
 
+**Test execution:**
+- `log_*.jsonl` - Test results in JSONL format
+- `test_data_manifest.txt` - Test data inventory
+
+**External documentation:**
 - [Claude Code on the Web](https://code.claude.com/docs/en/claude-code-on-the-web)
 - [Claude Code Documentation](https://code.claude.com/docs)
+
+---
 
 ## Support
 
 For issues or questions:
-1. Check the setup log: `setup_environment.log`
-2. Review environment capabilities: `environment_capabilities.txt`
-3. Consult the setup report: `setup_report.md`
-4. Check test execution logs: `log_*.jsonl`
+
+1. **Check setup log:** `setup_environment.log`
+2. **Review capabilities:** `environment_capabilities.txt`
+3. **Consult setup report:** `setup_report.md`
+4. **Query test logs:** `jq -s '.[] | select(.status == "fail")' log_*.jsonl`
+5. **Test network monitoring:** `python3 test_network_monitor.py`
 
 ---
 
 **Last Updated:** 2025-11-17
 **Environment:** Claude Code on the Web
 **Test Suite Version:** 1.0
-**Total Tests:** 76 (setup) + 76 (main suite)
+**Total Tests:** 5 setup + 76 main = 81 tests
+**Framework:** Meta-testing (Claude Code tests Claude Code)
