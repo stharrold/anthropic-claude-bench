@@ -1,0 +1,14 @@
+Test Data Location: /tmp/test-data
+
+Generated Datasets:
+- JSON files: 50 (45 valid, 5 invalid) at /tmp/test-data/json-files/
+- Images: 1000 placeholder files at /tmp/test-data/images/
+- FHIR patients: 100 at /tmp/test-data/medical/fhir/
+- GDPR users: 1000 at /tmp/test-data/gdpr/users.json
+- RAG articles: 99 at /tmp/test-data/rag/articles/
+- Research papers: 15 at /tmp/test-data/research/papers.json
+
+Total disk usage: 124MB
+
+Note: Image files are placeholder binary data (not valid image formats) due to PIL/Pillow import issues.
+All other datasets are fully functional and validated.
