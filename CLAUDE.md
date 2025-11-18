@@ -36,6 +36,15 @@ git checkout -b agent/$(date -u +%Y%m%dT%H%M%SZ)  # Create timestamped worker br
 git log --oneline --grep="Test #"                  # View test execution history
 git push --force-with-lease origin agent/00000000T000000Z  # Safe force-push after rebase
 
+# Release workflow (agent → develop → release → main)
+gh pr create --base develop --head agent/YYYYMMDDTHHMMSSZ  # Agent to develop
+git checkout -b release/v1.2.0 develop                      # Create release branch
+gh pr create --base main --head release/v1.2.0              # Release to main
+git tag v1.2.0 && git push origin v1.2.0                    # Tag version
+gh release create v1.2.0 --title "v1.2.0" --latest          # Publish release
+gh pr create --base develop --head release/v1.2.0           # Backmerge to develop
+git checkout agent/YYYYMMDDTHHMMSSZ && git rebase develop   # Update agent branch
+
 # Session recovery
 git branch -a | grep 'agent/2'             # Find worker branches
 tail -1 log_*.jsonl | jq '.test_number'    # Resume from last test + 1
@@ -281,10 +290,64 @@ Test data lives in `/tmp/test-data/` (gitignored) because:
 ```
 main (stable baseline)
 ├── develop (integration)
+├── release/vN.N.N (release candidates)
 ├── agent/00000000T000000Z (judge - persistent, holds rubric)
 └── agent/YYYYMMDDTHHMMSSZ (workers - one per test run)
     └── Example: agent/20251117T191722Z
 ```
+
+### Release Workflow
+
+**Complete release process from agent branch to main:**
+
+```bash
+# 1. PR from agent branch to develop
+gh pr create --base develop --head agent/20251117T191722Z \
+  --title "Test run: 20251117T191722Z" \
+  --body "76-test benchmark execution results"
+
+# 2. After PR merge, create release branch from develop
+git checkout develop
+git pull origin develop
+git checkout -b release/v1.2.0
+
+# 3. PR from release branch to main
+gh pr create --base main --head release/v1.2.0 \
+  --title "Release v1.2.0" \
+  --body "Production release with test suite improvements"
+
+# 4. After PR merge, create and push tag
+git checkout main
+git pull origin main
+git tag v1.2.0
+git push origin v1.2.0
+
+# 5. Publish tag as GitHub release
+gh release create v1.2.0 \
+  --title "v1.2.0" \
+  --notes "Release notes here" \
+  --latest
+
+# 6. Backmerge: PR from release branch to develop
+gh pr create --base develop --head release/v1.2.0 \
+  --title "Backmerge: v1.2.0 to develop" \
+  --body "Sync release changes back to develop"
+
+# 7. Rebase agent branch on updated develop
+git checkout agent/20251117T191722Z
+git fetch origin develop
+git rebase origin/develop
+git push --force-with-lease origin agent/20251117T191722Z
+```
+
+**Workflow Summary:**
+1. **Agent → Develop** - Integrate test results
+2. **Develop → Release/vN.N.N** - Create release candidate
+3. **Release → Main** - Production deployment
+4. **Tag vN.N.N** - Version marker
+5. **Publish Release** - GitHub release with notes
+6. **Release → Develop** - Backmerge any hotfixes
+7. **Rebase Agent on Develop** - Keep agent branches current
 
 ### Commit After Every Test
 
@@ -996,13 +1059,14 @@ This meta-testing framework enables Claude Code to systematically evaluate its o
 
 ---
 
-**Last Updated:** 2025-11-17 (v1.1.1 - Updated SessionStart hook reference, expanded project structure)
+**Last Updated:** 2025-11-17 (v1.2.0 - Added release workflow and fixed SessionStart hook format)
 **Environment:** Claude Code on the Web
 **Test Suite Version:** 1.0
 **Total Tests:** 5 setup + 76 main = 81 tests
 **Framework:** Meta-testing (Claude Code tests Claude Code)
 
 **Version History:**
+- v1.2.0 (2025-11-17): Added complete release workflow (agent→develop→release→main), fixed SessionStart hook to new array format
 - v1.1.1 (2025-11-17): Updated SessionStart hook documentation, expanded project structure
 - v1.1 (2025-11-17): Added dependency maps, pass rate rules, session recovery, document hierarchy, advanced queries
 - v1.0 (2025-11-17): Initial comprehensive documentation
