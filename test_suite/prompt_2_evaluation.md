@@ -34,7 +34,7 @@ echo "Evaluating worker branch: $WORKER_BRANCH"
 git checkout $WORKER_BRANCH
 
 # Verify log file exists
-LOG_FILE="log_$(echo $WORKER_BRANCH | sed 's/agent\///' | sed 's/\///')_.jsonl"
+LOG_FILE="log_$(echo $WORKER_BRANCH | sed 's|agent/||').jsonl"
 ls -lh $LOG_FILE
 
 # Count test entries
