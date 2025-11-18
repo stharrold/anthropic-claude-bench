@@ -1,0 +1,9 @@
+evaluation_rubric:
+  per_test:
+    correctness: {weight: 0.4, scale: 0-10}
+    completeness: {weight: 0.3, scale: 0-10}
+    quality: {weight: 0.3, scale: 0-10}
+    pass_threshold: 7.0
+  suite_level:
+    minimum_pass_rate: 0.80
+    critical_tests: [1, 5, 10, 36, 68, 71, 72]
