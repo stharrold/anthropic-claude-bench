@@ -1,10 +1,17 @@
 {
   "hooks": {
-    "sessionStart": {
-      "command": "bash",
-      "args": [".claude/session_start.sh"],
-      "description": "Environment validation on session start"
-    }
+    "SessionStart": [
+      {
+        "matcher": {},
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/session_start.sh",
+            "description": "Environment validation on session start"
+          }
+        ]
+      }
+    ]
   },
   "environment": {
     "TEST_DATA_DIR": "/tmp/test-data",
