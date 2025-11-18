@@ -2,7 +2,9 @@ Test Data Location: /tmp/test-data
 
 Generated Datasets:
 - JSON files: 50 (45 valid, 5 invalid) at /tmp/test-data/json-files/
-- Images: 1000 placeholder files at /tmp/test-data/images/
+- Images: 1000 real image files at /tmp/test-data/images/
+  Formats: PNG, JPEG, WEBP (generated with Pillow)
+  Fallback: Placeholder binary data only if Pillow unavailable
 - FHIR patients: 100 at /tmp/test-data/medical/fhir/
 - GDPR users: 1000 at /tmp/test-data/gdpr/users.json
 - RAG articles: 99 at /tmp/test-data/rag/articles/
@@ -10,5 +12,4 @@ Generated Datasets:
 
 Total disk usage: 124MB
 
-Note: Image files are placeholder binary data (not valid image formats) due to PIL/Pillow import issues.
-All other datasets are fully functional and validated.
+Note: All datasets are fully functional and validated.
