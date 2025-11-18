@@ -780,10 +780,15 @@ diff <(jq -S '.' run1.json) <(jq -S '.' run2.json)
 ```
 anthropic-claude-bench/
 ├── .claude/
-│   └── settings.json              # SessionStart hook (auto-validates environment)
+│   ├── settings.json              # SessionStart hook configuration
+│   └── session_start.sh           # SessionStart hook script (v1.0.1+)
 ├── test_suite/
+│   ├── README.md                  # Test suite overview
+│   ├── EXECUTION_GUIDE.md         # Detailed execution workflow
 │   ├── prompt_0_setup.md          # 5 setup tests (detailed specifications)
-│   └── prompt_1_tests.md          # 76 main tests (complete test suite)
+│   ├── prompt_1_tests.md          # 76 main tests (complete test suite)
+│   ├── prompt_2_evaluation.md     # Judge evaluation instructions
+│   └── examples/                  # Sample logs and reports
 ├── setup_environment.sh           # Automated environment setup
 ├── test_network_monitor.py        # Network capability tester
 ├── setup_report.md                # Setup phase results
@@ -869,10 +874,10 @@ USE_APP_LEVEL_LOGGING=true
 
 ## SessionStart Hook
 
-Configured in `.claude/settings.json`, automatically runs on every new session:
+Configured in `.claude/settings.json`, automatically runs `.claude/session_start.sh` on every new session:
 
 **Displays:**
-- Timestamp
+- Timestamp (UTC format: YYYYMMDDTHHMMSSZ)
 - Python, Node, Git versions
 - Test data availability check
 - Quick capability summary:
@@ -883,6 +888,8 @@ Configured in `.claude/settings.json`, automatically runs on every new session:
   - ✗ Podman not available → Install for container tests
 
 **Purpose:** Instant environment validation without manual commands.
+
+**Implementation:** The hook script (`.claude/session_start.sh`) was refactored in v1.0.1 to improve maintainability (previously inline in settings.json).
 
 ---
 
@@ -989,8 +996,13 @@ This meta-testing framework enables Claude Code to systematically evaluate its o
 
 ---
 
-**Last Updated:** 2025-11-17 (v1.1 - Added dependency maps, pass rate rules, session recovery, document hierarchy, advanced queries)
+**Last Updated:** 2025-11-17 (v1.1.1 - Updated SessionStart hook reference, expanded project structure)
 **Environment:** Claude Code on the Web
 **Test Suite Version:** 1.0
 **Total Tests:** 5 setup + 76 main = 81 tests
 **Framework:** Meta-testing (Claude Code tests Claude Code)
+
+**Version History:**
+- v1.1.1 (2025-11-17): Updated SessionStart hook documentation, expanded project structure
+- v1.1 (2025-11-17): Added dependency maps, pass rate rules, session recovery, document hierarchy, advanced queries
+- v1.0 (2025-11-17): Initial comprehensive documentation
